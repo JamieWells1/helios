@@ -1,0 +1,12 @@
+# Solana blockchain client
+solders==0.21.0
+solana==0.34.3
+
+# HTTP requests for APIs
+requests==2.31.0
+
+# Environment variable management
+python-dotenv==1.0.1
+
+# Base58 encoding for keypairs
+base58==2.1.1

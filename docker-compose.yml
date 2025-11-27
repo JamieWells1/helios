@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  trading-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: solana-trading-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      # Persist logs
+      - ./logs:/app/logs
+      # Persist state data
+      - ./data:/app/data
+    environment:
+      - TZ=Europe/London
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # Uncomment to limit resources
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: '1'
+    #       memory: 512M
+    #     reservations:
+    #       cpus: '0.5'
+    #       memory: 256M
