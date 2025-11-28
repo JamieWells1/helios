@@ -60,9 +60,10 @@ class SolanaClient:
             return False
 
         try:
-            response = self.client.get_health()
+            # Use get_version() instead of get_health() which doesn't exist
+            response = self.client.get_version()
             logger.debug("RPC health check passed")
-            return True
+            return response.value is not None
         except Exception as e:
             logger.warning(f"RPC health check failed: {e}")
             return False
@@ -131,7 +132,7 @@ class SolanaClient:
             token_account: Token account public key
 
         Returns:
-            Token balance, or None if query fails
+            Token balance (0.0 if account doesn't exist), or None if query fails
         """
         if not self.client:
             logger.error("Client not initialized")
@@ -151,6 +152,11 @@ class SolanaClient:
                     logger.warning(f"No token balance data returned for {token_account}")
                     return None
             except RPCException as e:
+                error_msg = str(e)
+                # If account doesn't exist, it means balance is 0 (token account not created yet)
+                if "could not find account" in error_msg.lower():
+                    logger.info(f"Token account {token_account} does not exist yet (balance: 0.0)")
+                    return 0.0
                 retries += 1
                 logger.warning(f"RPC error getting token balance (attempt {retries}/{self.max_retries}): {e}")
                 if retries < self.max_retries:

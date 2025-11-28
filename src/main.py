@@ -11,15 +11,16 @@ from typing import Optional
 
 from dotenv import load_dotenv
 
-from .blockchain.client import SolanaClient
-from .blockchain.wallet import Wallet
-from .blockchain.trader import JupiterTrader
-from .data.price_feed import PriceFeed
-from .strategies.base import BaseStrategy, Signal
-from .strategies.skeleton import SkeletonStrategy
-from .strategies.registry import StrategyRegistry, register_strategy
-from .utils.logging import setup_logging, get_logger
-from .utils.state import StateManager
+from src.blockchain.client import SolanaClient
+from src.blockchain.wallet import Wallet
+from src.blockchain.trader import JupiterTrader
+from src.data.price_feed import PriceFeed
+from src.data.candle_store import CandleStore, StoreConfig
+from src.strategies.base import BaseStrategy, Signal
+from src.strategies.skeleton import SkeletonStrategy
+from src.strategies.registry import StrategyRegistry, register_strategy
+from src.utils.logging import setup_logging, get_logger
+from src.utils.state import StateManager
 
 
 shutdown_requested = False
@@ -48,7 +49,9 @@ class TradingBot:
         self.wallet: Optional[Wallet] = None
         self.trader: Optional[JupiterTrader] = None
         self.price_feed: Optional[PriceFeed] = None
+        self.candle_store: Optional[CandleStore] = None
         self.strategy: Optional[BaseStrategy] = None
+        self.use_ohlc_data: bool = False
 
     def _load_config(self) -> dict:
         """
@@ -93,6 +96,11 @@ class TradingBot:
             'log_level': os.getenv('LOG_LEVEL', 'INFO'),
             'max_log_size_bytes': int(os.getenv('MAX_LOG_SIZE_BYTES', '10485760')),
             'log_backup_count': int(os.getenv('LOG_BACKUP_COUNT', '5')),
+
+            # OHLC data (optional, for advanced strategies)
+            'use_ohlc_data': os.getenv('USE_OHLC_DATA', 'false').lower() == 'true',
+            'ohlc_timeframe': os.getenv('OHLC_TIMEFRAME', '1h'),
+            'ohlc_history_limit': int(os.getenv('OHLC_HISTORY_LIMIT', '200')),
         }
 
         # Validate required fields
@@ -142,6 +150,22 @@ class TradingBot:
             retry_delay=self.config['retry_delay_seconds']
         )
 
+        # Initialize OHLC data store if enabled
+        self.use_ohlc_data = self.config['use_ohlc_data']
+        if self.use_ohlc_data:
+            self.logger.info("Initializing OHLC data store...")
+            store_config = StoreConfig(
+                db_path="data/candles.db",
+                auto_discover_pool=True
+            )
+            self.candle_store = CandleStore(store_config)
+
+            # Backfill historical data
+            timeframe = self.config['ohlc_timeframe']
+            limit = self.config['ohlc_history_limit']
+            self.logger.info(f"Backfilling {limit} {timeframe} candles...")
+            self.candle_store.backfill(timeframe, limit)
+
         # Use provided strategy or create skeleton
         if strategy:
             self.strategy = strategy
@@ -185,7 +209,7 @@ class TradingBot:
         while not shutdown_requested:
             try:
                 iteration += 1
-                self.logger.info(f"--- Iteration {iteration} [{datetime.utcnow().isoformat()}] ---")
+                self.logger.info(f"\n--- Iteration {iteration} [{datetime.utcnow().isoformat()}] ---")
 
                 if not self.rpc_client.check_health():
                     self.logger.warning("RPC unhealthy, attempting reconnection...")
@@ -193,6 +217,11 @@ class TradingBot:
                         self.logger.error("Reconnection failed, waiting before retry...")
                         time.sleep(30)
                         continue
+
+                # Update OHLC data if enabled
+                if self.use_ohlc_data and self.candle_store:
+                    timeframe = self.config['ohlc_timeframe']
+                    self.candle_store.update_latest(timeframe)
 
                 current_price = self.price_feed.get_sol_price()
                 if current_price is None:
@@ -208,7 +237,8 @@ class TradingBot:
                     time.sleep(self.config['check_interval_seconds'])
                     continue
 
-                signal = self.strategy.get_signal(current_price)
+                # Get signal from strategy (supports both OHLC and price-based strategies)
+                signal = self._get_strategy_signal(current_price)
 
                 if signal == Signal.BUY:
                     self._execute_buy(current_price, usdc_balance)
@@ -231,6 +261,46 @@ class TradingBot:
 
         self.logger.info("Trading bot main loop stopped")
         self._shutdown()
+
+    def _get_strategy_signal(self, current_price: float) -> Signal:
+        """
+        Get trading signal from strategy.
+
+        Supports both OHLC-based and price-based strategies.
+
+        Args:
+            current_price: Current market price
+
+        Returns:
+            Trading signal (BUY, SELL, or HOLD)
+        """
+        # Check if strategy supports OHLC data
+        if (self.use_ohlc_data and
+            self.candle_store and
+            hasattr(self.strategy, 'should_buy_candles')):
+
+            # Get candle data
+            timeframe = self.config['ohlc_timeframe']
+            limit = self.config['ohlc_history_limit']
+            candles = self.candle_store.get_candles(timeframe, limit)
+
+            # Update strategy with current price
+            self.strategy.update(current_price)
+
+            # Check for buy/sell signals using candles
+            if self.strategy.position.value == 'flat':
+                if self.strategy.should_buy_candles(candles):
+                    self.logger.info(f"BUY signal generated at price ${current_price:.4f}")
+                    return Signal.BUY
+            elif self.strategy.position.value == 'long':
+                if self.strategy.should_sell_candles(candles):
+                    self.logger.info(f"SELL signal generated at price ${current_price:.4f}")
+                    return Signal.SELL
+
+            return Signal.HOLD
+
+        # Fall back to legacy price-based signal
+        return self.strategy.get_signal(current_price)
 
     def _execute_buy(self, current_price: float, usdc_balance: float) -> None:
         """

@@ -13,10 +13,10 @@ logger = get_logger(__name__)
 
 class CompositeMode(Enum):
     """How to combine signals from multiple strategies."""
-    ALL = "all"  # All strategies must agree (AND logic)
-    ANY = "any"  # Any strategy can trigger (OR logic)
-    MAJORITY = "majority"  # Majority vote wins
-    WEIGHTED = "weighted"  # Weighted voting based on strategy priority
+    ALL = "all"
+    ANY = "any"
+    MAJORITY = "majority"
+    WEIGHTED = "weighted"
 
 
 class CompositeStrategy(BaseStrategy):
@@ -52,7 +52,6 @@ class CompositeStrategy(BaseStrategy):
         self.mode = mode
         self.weights = weights
 
-        # Validate weights for weighted mode
         if mode == CompositeMode.WEIGHTED:
             if not weights or len(weights) != len(strategies):
                 raise ValueError(
@@ -89,26 +88,22 @@ class CompositeStrategy(BaseStrategy):
         signals = [strategy.should_buy(current_price) for strategy in self.strategies]
 
         if self.mode == CompositeMode.ALL:
-            # All strategies must agree
             result = all(signals)
             logger.debug(f"Buy signals (ALL): {signals} -> {result}")
             return result
 
         elif self.mode == CompositeMode.ANY:
-            # Any strategy can trigger
             result = any(signals)
             logger.debug(f"Buy signals (ANY): {signals} -> {result}")
             return result
 
         elif self.mode == CompositeMode.MAJORITY:
-            # Majority vote
             yes_votes = sum(signals)
             result = yes_votes > len(signals) / 2
             logger.debug(f"Buy signals (MAJORITY): {yes_votes}/{len(signals)} -> {result}")
             return result
 
         elif self.mode == CompositeMode.WEIGHTED:
-            # Weighted voting
             score = sum(
                 weight if signal else 0
                 for signal, weight in zip(signals, self.weights)
