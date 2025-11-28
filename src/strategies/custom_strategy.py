@@ -64,12 +64,10 @@ class MeanReversionStrategy(BaseStrategy):
 
         profit_pct = ((current_price / self.entry_price) - 1) * 100
 
-        # Take profit
         if profit_pct >= self.profit_target_pct:
             logger.info(f"SELL: Profit target hit {profit_pct:.2f}%")
             return True
 
-        # Price returned above SMA (mean reversion complete)
         if current_price >= self.sma:
             logger.info(f"SELL: Price ${current_price:.2f} returned to SMA ${self.sma:.2f}")
             return True

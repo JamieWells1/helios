@@ -26,6 +26,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY src/ ./src/
 COPY main.py .
 
+# Copy the test script
+COPY run_tests.sh .
+
+# Ensure the test script is executable
+RUN chmod +x run_tests.sh
+
 # Create directories for logs and data
 RUN mkdir -p logs data
 
@@ -36,5 +42,15 @@ RUN useradd -m -u 1000 botuser && \
 # Switch to non-root user
 USER botuser
 
-# Set entry point
-CMD ["python", "-u", "main.py"]
+# Ensure the tests directory is copied into the container
+COPY tests/ ./tests/
+
+# Ensure the tests directory is writable by the container user
+USER root
+RUN chown -R botuser:botuser ./tests && touch ./tests/__init__.py
+
+# Switch back to the non-root user
+USER botuser
+
+# Update the default CMD to gracefully exit after tests
+CMD ["bash", "-c", "echo 'Running tests...' && python3 -m unittest discover -s ./tests -p '*.py' && echo 'Tests completed. Exiting gracefully.'"]

@@ -1,11 +1,11 @@
-version: '3.8'
+version: "3.8"
 
 services:
   trading-bot:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: solana-trading-bot
+    container_name: trading-bot
     restart: unless-stopped
     env_file:
       - .env
@@ -21,6 +21,30 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+    command: python3 main.py
+
+  bot-test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: bot-test
+    restart: no
+    env_file:
+      - .env
+    volumes:
+      # Persist logs
+      - ./logs:/app/logs
+      # Persist state data
+      - ./data:/app/data
+    environment:
+      - TZ=Europe/London
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    command: bash -c "echo 'Running tests...' && ./run_tests.sh && echo 'Tests completed. Starting bot...' && python3 main.py --test"
+
     # Uncomment to limit resources
     # deploy:
     #   resources:

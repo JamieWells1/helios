@@ -312,6 +312,7 @@ class TradingBot:
         """
         self.logger.info("=" * 60)
         self.logger.info("Starting trading bot main loop")
+        self.logger.info(f"Active Strategy: {self.strategy.__class__.__name__}")
         self.logger.info("=" * 60)
 
         iteration = 0
@@ -329,18 +330,10 @@ class TradingBot:
                         continue
 
                 # Update OHLC data if enabled
-                # Fetch recent candles from runtime source (GeckoTerminal)
-                if self.use_ohlc_data and self.data_aggregator:
+                # Smart update: only fetch candles we need based on time elapsed
+                if self.use_ohlc_data and self.candle_store:
                     runtime_tf = self.config['ohlc_runtime_timeframe']
-                    runtime_limit = self.config['ohlc_runtime_limit']
-
-                    recent_candles = self.data_aggregator.fetch_runtime_candles(
-                        timeframe=runtime_tf,
-                        limit=runtime_limit
-                    )
-
-                    if recent_candles and self.candle_store:
-                        self.candle_store._save_to_db(runtime_tf, recent_candles.candles)
+                    self.candle_store.update_latest(runtime_tf)
 
                 # Get current price (from data aggregator if using OHLC, else from price_feed)
                 if self.use_ohlc_data and self.data_aggregator:
@@ -398,6 +391,7 @@ class TradingBot:
         """
         self.logger.info("=" * 60)
         self.logger.info("BACKTEST MODE")
+        self.logger.info(f"Active Strategy: {self.strategy.__class__.__name__}")
         self.logger.info("=" * 60)
         self.logger.info(f"Backtesting on last {num_candles} candles")
 
@@ -410,14 +404,31 @@ class TradingBot:
         catch_up_info = self.candle_store.get_catch_up_info(startup_tf, num_candles)
 
         if catch_up_info['candles_needed'] > 0:
-            self.logger.info(f"Fetching {catch_up_info['candles_needed']} missing candles...")
-            candles = self.data_aggregator.fetch_runtime_candles(
-                timeframe=startup_tf,
-                limit=catch_up_info['candles_needed']
-            )
+            candles_needed = catch_up_info['candles_needed']
+            self.logger.info(f"Need to fetch {candles_needed} candles...")
+
+            # Use different fetch strategy based on amount needed
+            if catch_up_info['should_full_fetch'] or candles_needed > 1000:
+                # Large fetch: Use CryptoCompare (better for bulk historical data)
+                self.logger.info(f"Performing full historical fetch from CryptoCompare ({candles_needed} candles)...")
+                candles = self.data_aggregator.fetch_startup_historical_data(
+                    timeframe=startup_tf,
+                    limit=candles_needed
+                )
+            else:
+                # Small catch-up: Use GeckoTerminal
+                self.logger.info(f"Performing catch-up fetch from GeckoTerminal ({candles_needed} candles)...")
+                candles = self.data_aggregator.fetch_runtime_candles(
+                    timeframe=startup_tf,
+                    limit=candles_needed
+                )
+
             if candles:
                 self.candle_store.bulk_insert(startup_tf, candles.candles)
-                self.logger.info("✓ Candles updated")
+                self.logger.info(f"✓ Fetched and saved {len(candles)} candles")
+            else:
+                self.logger.error("Failed to fetch candles")
+                self.logger.warning("Backtest will proceed with available data (may be incomplete)")
 
         # Load candles for backtest
         candle_list = self.candle_store.get_candles(startup_tf, limit=num_candles)
@@ -542,28 +553,21 @@ class TradingBot:
         Returns:
             Trading signal (BUY, SELL, or HOLD)
         """
-        # Check if strategy supports OHLC data
         if (self.use_ohlc_data and
             self.candle_store and
             hasattr(self.strategy, 'should_buy_candles')):
 
-            # Get startup historical data (10,000 1m candles from CryptoCompare)
             startup_tf = self.config['ohlc_startup_timeframe']
             startup_limit = self.config['ohlc_startup_limit']
 
-            # Get runtime recent data (5 1m candles from GeckoTerminal)
             runtime_tf = self.config['ohlc_runtime_timeframe']
             runtime_limit = self.config['ohlc_runtime_limit']
 
-            # Fetch candles from database
             historical_candles = self.candle_store.get_candles(startup_tf, startup_limit)
             recent_candles = self.candle_store.get_candles(runtime_tf, runtime_limit)
 
-            # Update strategy with current price
             self.strategy.update(current_price)
 
-            # Pass historical candles to strategy (for indicators)
-            # Strategy calculates RSI/MACD on large dataset
             if self.strategy.position.value == 'flat':
                 if self.strategy.should_buy_candles(historical_candles):
                     self.logger.info(
@@ -581,7 +585,6 @@ class TradingBot:
 
             return Signal.HOLD
 
-        # Fall back to legacy price-based signal
         return self.strategy.get_signal(current_price)
 
     def _execute_buy(self, current_price: float, usdc_balance: float) -> None:
@@ -658,7 +661,6 @@ class TradingBot:
 
 def main():
     """Main entry point."""
-    # Parse command line arguments
     parser = argparse.ArgumentParser(description='Solana Trading Bot')
     parser.add_argument('--test', action='store_true', help='Run in backtest mode (simulated trading on historical data)')
     parser.add_argument('--candles', type=int, default=10000, help='Number of candles to backtest (default: 10000)')
@@ -684,14 +686,10 @@ def main():
         bot = TradingBot()
 
         if args.test:
-            # Initialize in backtest mode (skips wallet/blockchain)
             bot.initialize(backtest_mode=True)
-            # Run backtest mode (no live trading)
             bot.backtest(num_candles=args.candles)
         else:
-            # Initialize for live trading
             bot.initialize(backtest_mode=False)
-            # Run live trading mode
             bot.run()
 
     except Exception as e:
