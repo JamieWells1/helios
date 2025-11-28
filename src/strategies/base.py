@@ -13,6 +13,7 @@ logger = get_logger(__name__)
 
 class Signal(Enum):
     """Trading signals."""
+
     BUY = "buy"
     SELL = "sell"
     HOLD = "hold"
@@ -20,6 +21,7 @@ class Signal(Enum):
 
 class Position(Enum):
     """Position states."""
+
     FLAT = "flat"
     LONG = "long"
 
@@ -145,8 +147,8 @@ class BaseStrategy(ABC):
         Returns:
             Position size in USDC
         """
-        position_size = self.config.get('position_size_usdc', 100.0)
-        max_position_size = self.config.get('max_position_size_usdc', 1000.0)
+        position_size = self.config.get("position_size_usdc", 100.0)
+        max_position_size = self.config.get("max_position_size_usdc", 1000.0)
 
         return min(position_size, available_balance, max_position_size)
 
@@ -158,9 +160,9 @@ class BaseStrategy(ABC):
             Dictionary containing strategy state
         """
         return {
-            'position': self.position.value,
-            'entry_price': self.entry_price,
-            'strategy_state': self.strategy_state
+            "position": self.position.value,
+            "entry_price": self.entry_price,
+            "strategy_state": self.strategy_state,
         }
 
     def load_state(self, state: Dict[str, Any]) -> None:
@@ -171,10 +173,10 @@ class BaseStrategy(ABC):
             state: Dictionary containing saved strategy state
         """
         try:
-            position_str = state.get('position', 'flat')
+            position_str = state.get("position", "flat")
             self.position = Position(position_str)
-            self.entry_price = state.get('entry_price')
-            self.strategy_state = state.get('strategy_state', {})
+            self.entry_price = state.get("entry_price")
+            self.strategy_state = state.get("strategy_state", {})
 
             logger.info(f"Strategy state loaded: position={self.position.value}")
         except Exception as e:

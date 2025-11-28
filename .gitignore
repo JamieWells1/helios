@@ -1,6 +1,7 @@
 # Environment and sensitive files
 .env
 *.key
+solana-wallet.json
 
 # Python
 __pycache__/
@@ -8,9 +9,8 @@ __pycache__/
 *$py.class
 *.so
 .Python
-venv/
 env/
-ENV/
+.venv
 
 # Logs and data
 logs/

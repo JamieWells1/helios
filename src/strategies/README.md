@@ -5,44 +5,30 @@ This directory contains the strategy framework for the trading bot.
 ## Files
 
 - **base.py**: Abstract base class that all strategies must inherit from
-- **skeleton.py**: Template for creating new strategies
-- **composite.py**: System for chaining multiple strategies together
-- **registry.py**: Strategy registration system (optional, for advanced use)
+- **skeleton.py**: Template with extensive documentation and examples
 
 ## Quick Start
 
-### 1. Create Your Strategy
+### 1. Copy the Skeleton
 
-Copy `skeleton.py` or create a new file:
-
-```python
-from src.strategies.base import BaseStrategy
-
-class MyStrategy(BaseStrategy):
-    def __init__(self, config):
-        super().__init__(config)
-        # Initialize your state
-
-    def update(self, current_price: float) -> None:
-        # Update indicators, store price history, etc.
-        pass
-
-    def should_buy(self, current_price: float) -> bool:
-        # Return True when you want to enter a position
-        return False
-
-    def should_sell(self, current_price: float) -> bool:
-        # Return True when you want to exit a position
-        return False
+```bash
+cp src/strategies/skeleton.py src/strategies/my_strategy.py
 ```
 
-### 2. Use Your Strategy
+### 2. Rename and Implement
 
-In your main script:
+Open `my_strategy.py` and:
+- Rename `SkeletonStrategy` to `MyStrategy`
+- Implement `update()`, `should_buy()`, and `should_sell()`
+
+The skeleton file contains detailed documentation with examples.
+
+### 3. Run Your Strategy
 
 ```python
+# run_bot.py
 from src.main import TradingBot
-from my_strategy import MyStrategy
+from src.strategies.my_strategy import MyStrategy
 
 bot = TradingBot()
 strategy = MyStrategy(bot.config)
@@ -50,53 +36,84 @@ bot.initialize(strategy=strategy)
 bot.run()
 ```
 
-## Strategy Chaining
+## Strategy Interface
 
-Combine multiple strategies using `CompositeStrategy`:
+All strategies must implement three methods:
+
+### `update(current_price: float) -> None`
+
+Called every iteration before signals are checked.
+
+**Use for:** Updating indicators, storing price history, calculating metrics
 
 ```python
-from src.strategies.composite import CompositeStrategy, CompositeMode
-
-# Create multiple strategies
-strategy1 = MyStrategy1(config)
-strategy2 = MyStrategy2(config)
-
-# Combine with AND logic (all must agree)
-composite = CompositeStrategy(
-    config=config,
-    strategies=[strategy1, strategy2],
-    mode=CompositeMode.ALL
-)
-
-bot.initialize(strategy=composite)
+def update(self, current_price: float) -> None:
+    self.price_history.append(current_price)
+    self.rsi = self.calculate_rsi(self.price_history)
 ```
 
-### Composite Modes
+### `should_buy(current_price: float) -> bool`
 
-- **ALL**: All strategies must agree (AND logic)
-- **ANY**: Any strategy can trigger (OR logic)
-- **MAJORITY**: Majority vote wins
-- **WEIGHTED**: Weighted voting (provide weights list)
+Called only when position is FLAT (no holdings).
 
-## Available Context
+**Return:** `True` to buy, `False` to wait
+
+```python
+def should_buy(self, current_price: float) -> bool:
+    return self.rsi < 30  # Buy when oversold
+```
+
+### `should_sell(current_price: float) -> bool`
+
+Called only when position is LONG (holding SOL).
+
+**Return:** `True` to sell, `False` to hold
+
+```python
+def should_sell(self, current_price: float) -> bool:
+    profit = (current_price / self.entry_price - 1) * 100
+    return profit >= 5.0  # Sell at 5% profit
+```
+
+## Available Data
 
 Your strategy has access to:
 
-- `self.config`: Configuration dictionary from the bot
+- `self.config`: Bot configuration dictionary (all .env variables)
 - `self.position`: Current position (Position.FLAT or Position.LONG)
-- `self.entry_price`: Price when position was entered (if LONG)
+- `self.entry_price`: Price when position was entered (if LONG, else None)
 - `self.strategy_state`: Dictionary for storing custom state
+- `self.candle_store`: Historical OHLC data (if USE_OHLC_DATA=true and passed to __init__)
 
-## Lifecycle Methods
+## Accessing OHLC Data
 
-- `update(price)`: Called every iteration before signals are checked
-- `should_buy(price)`: Called only when FLAT, return True to buy
-- `should_sell(price)`: Called only when LONG, return True to sell
+If `USE_OHLC_DATA=true` in `.env`:
+
+```python
+def __init__(self, config, candle_store=None):
+    super().__init__(config)
+    self.candle_store = candle_store
+
+def update(self, current_price: float) -> None:
+    if self.candle_store:
+        candles = self.candle_store.get_candles('1m', limit=1000)
+        closes = [c.close for c in candles.candles]
+        self.rsi = self.calculate_rsi(closes, period=14)
+```
+
+## Lifecycle Hooks
+
+Optional methods you can override:
+
 - `on_buy(price)`: Called after successful buy execution
-- `on_sell(price)`: Called after successful sell execution
+- `on_sell(price)`: Called after successful sell execution (calculates P&L automatically)
 - `get_state()`: Return state dictionary for persistence
 - `load_state(state)`: Restore state from persistence
 
-## Examples
+## More Information
 
-See `example_strategies.py` in the project root for complete examples.
+See `src/strategies/skeleton.py` for:
+- Detailed API documentation
+- Multiple example implementations
+- Helper methods for calculating RSI, SMA, EMA
+- Common patterns (trailing stops, time-based exits, etc.)

@@ -21,13 +21,12 @@ class JupiterTrader:
     Executes trades via Jupiter aggregator V6 API.
     """
 
-    JUPITER_QUOTE_API = "https://quote-api.jup.ag/v6/quote"
-    JUPITER_SWAP_API = "https://quote-api.jup.ag/v6/swap"
-
     def __init__(
         self,
         rpc_client: SolanaClient,
         keypair: Keypair,
+        jupiter_quote_api: str = "https://quote-api.jup.ag/v6/quote",
+        jupiter_swap_api: str = "https://quote-api.jup.ag/v6/swap",
         max_retries: int = 3,
         retry_delay: float = 1.0,
     ):
@@ -37,15 +36,19 @@ class JupiterTrader:
         Args:
             rpc_client: Solana RPC client
             keypair: Wallet keypair for signing transactions
+            jupiter_quote_api: Jupiter quote API endpoint
+            jupiter_swap_api: Jupiter swap API endpoint
             max_retries: Maximum retry attempts for API calls
             retry_delay: Initial delay between retries in seconds
         """
         self.rpc_client = rpc_client
         self.keypair = keypair
+        self.jupiter_quote_api = jupiter_quote_api
+        self.jupiter_swap_api = jupiter_swap_api
         self.max_retries = max_retries
         self.retry_delay = retry_delay
 
-        logger.info("Jupiter trader initialized")
+        logger.info(f"Jupiter trader initialized (quote: {self.jupiter_quote_api}, swap: {self.jupiter_swap_api})")
 
     def get_quote(
         self, input_mint: str, output_mint: str, amount: int, slippage_bps: int = 100
@@ -77,7 +80,7 @@ class JupiterTrader:
         while retries < self.max_retries:
             try:
                 response = requests.get(
-                    self.JUPITER_QUOTE_API, params=params, timeout=10
+                    self.jupiter_quote_api, params=params, timeout=10
                 )
                 response.raise_for_status()
                 quote = response.json()
@@ -167,7 +170,7 @@ class JupiterTrader:
         while retries < self.max_retries:
             try:
                 response = requests.post(
-                    self.JUPITER_SWAP_API, json=payload, timeout=10
+                    self.jupiter_swap_api, json=payload, timeout=10
                 )
                 response.raise_for_status()
                 return response.json()
