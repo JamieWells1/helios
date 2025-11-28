@@ -41,7 +41,6 @@ helios/
 └── README.md              # This file
 ```
 
-
 ## Prerequisites
 
 - **Docker & Docker Compose** (recommended) OR Python 3.13+
@@ -122,43 +121,43 @@ All configuration is done through environment variables in the `.env` file.
 
 ### Required Settings
 
-| Variable | Description |
-|----------|-------------|
-| `SOLANA_RPC_URL` | Solana RPC endpoint URL |
-| `PRIVATE_KEY` | Base58 encoded wallet private key |
+| Variable         | Description                       |
+| ---------------- | --------------------------------- |
+| `SOLANA_RPC_URL` | Solana RPC endpoint URL           |
+| `PRIVATE_KEY`    | Base58 encoded wallet private key |
 
 ### Trading Settings
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `POSITION_SIZE_USDC` | 100 | USDC amount per trade |
-| `MAX_POSITION_SIZE_USDC` | 1000 | Maximum position size limit |
-| `MAX_SLIPPAGE_PERCENT` | 1.0 | Maximum acceptable slippage (%) |
-| `CHECK_INTERVAL_SECONDS` | 10 | Seconds between strategy evaluations |
+| Variable                 | Default | Description                          |
+| ------------------------ | ------- | ------------------------------------ |
+| `POSITION_SIZE_USDC`     | 100     | USDC amount per trade                |
+| `MAX_POSITION_SIZE_USDC` | 1000    | Maximum position size limit          |
+| `MAX_SLIPPAGE_PERCENT`   | 1.0     | Maximum acceptable slippage (%)      |
+| `CHECK_INTERVAL_SECONDS` | 10      | Seconds between strategy evaluations |
 
 ### Strategy Settings
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `STRATEGY_NAME` | MovingAverageCrossover | Strategy to use |
-| `MA_SHORT_PERIOD` | 5 | Short MA period (for MA strategy) |
-| `MA_LONG_PERIOD` | 20 | Long MA period (for MA strategy) |
+| Variable          | Default                | Description                       |
+| ----------------- | ---------------------- | --------------------------------- |
+| `STRATEGY_NAME`   | MovingAverageCrossover | Strategy to use                   |
+| `MA_SHORT_PERIOD` | 5                      | Short MA period (for MA strategy) |
+| `MA_LONG_PERIOD`  | 20                     | Long MA period (for MA strategy)  |
 
 ### Price Feed Settings
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `USE_COINGECKO` | true | Enable CoinGecko price source |
-| `USE_JUPITER` | true | Enable Jupiter price source |
-| `PRICE_CACHE_SECONDS` | 5 | Price cache duration |
+| Variable              | Default | Description                   |
+| --------------------- | ------- | ----------------------------- |
+| `USE_COINGECKO`       | true    | Enable CoinGecko price source |
+| `USE_JUPITER`         | true    | Enable Jupiter price source   |
+| `PRICE_CACHE_SECONDS` | 5       | Price cache duration          |
 
 ### Logging Settings
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `LOG_LEVEL` | INFO | Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL) |
-| `MAX_LOG_SIZE_BYTES` | 10485760 | Max log file size (10MB) |
-| `LOG_BACKUP_COUNT` | 5 | Number of backup log files |
+| Variable             | Default  | Description                                       |
+| -------------------- | -------- | ------------------------------------------------- |
+| `LOG_LEVEL`          | INFO     | Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL) |
+| `MAX_LOG_SIZE_BYTES` | 10485760 | Max log file size (10MB)                          |
+| `LOG_BACKUP_COUNT`   | 5        | Number of backup log files                        |
 
 ## Implementing Custom Strategies
 
@@ -225,11 +224,13 @@ That's it! Restart the bot and it will use your custom strategy.
 Logs are written to both the console and rotating files in the `logs/` directory.
 
 With Docker:
+
 ```bash
 docker-compose logs -f
 ```
 
 With local installation:
+
 ```bash
 tail -f logs/trading_bot.log
 ```
@@ -237,6 +238,7 @@ tail -f logs/trading_bot.log
 ### Understanding Log Messages
 
 The bot logs:
+
 - Application startup and shutdown
 - Configuration loading
 - Price fetches from all sources
@@ -255,6 +257,7 @@ cat data/bot_state.json
 ```
 
 Example state:
+
 ```json
 {
   "position": "long",
@@ -265,7 +268,7 @@ Example state:
   "strategy_state": {
     "price_history": [124.5, 125.1, 125.43],
     "prev_short_ma": 125.01,
-    "prev_long_ma": 124.80
+    "prev_long_ma": 124.8
   }
 }
 ```
@@ -288,6 +291,7 @@ Before running with real capital, test on Solana devnet:
 ### Start Small
 
 When moving to mainnet:
+
 1. Start with very small `POSITION_SIZE_USDC` (e.g., 10)
 2. Monitor for several hours/days
 3. Verify trades execute as expected
@@ -310,33 +314,41 @@ The bot includes multiple safety mechanisms:
 ### Bot Won't Start
 
 **Issue**: Missing configuration
+
 - **Solution**: Verify all required fields in `.env` are set
 
 **Issue**: Invalid private key
+
 - **Solution**: Ensure private key is Base58 encoded and valid
 
 ### Trades Not Executing
 
 **Issue**: Insufficient balance
+
 - **Solution**: Check wallet balances with `get_sol_balance()` and `get_usdc_balance()`
 
 **Issue**: RPC errors
+
 - **Solution**: Use a reliable paid RPC provider (Helius, QuickNode)
 
 **Issue**: Slippage too restrictive
+
 - **Solution**: Increase `MAX_SLIPPAGE_PERCENT` slightly
 
 ### Price Fetch Failures
 
 **Issue**: Rate limiting
+
 - **Solution**: Increase `CHECK_INTERVAL_SECONDS` to reduce API calls
 
 **Issue**: API unavailable
+
 - **Solution**: Ensure both CoinGecko and Jupiter sources are enabled
 
 ### High Fees
 
 **Issue**: Frequent trading
+
 - **Solution**: Increase `CHECK_INTERVAL_SECONDS` or adjust strategy parameters
 
 ## Common Workflows
@@ -377,18 +389,22 @@ https://solscan.io/tx/<transaction_signature>
 ### Components
 
 1. **Blockchain Layer** (`src/blockchain/`)
+
    - `client.py`: Manages Solana RPC connections
    - `wallet.py`: Handles keypair and balance queries
    - `trader.py`: Executes swaps via Jupiter
 
 2. **Data Layer** (`src/data/`)
+
    - `price_feed.py`: Aggregates prices from multiple sources with caching
 
 3. **Strategy Layer** (`src/strategies/`)
+
    - `base.py`: Abstract base class defining strategy interface
    - `moving_average.py`: Example implementation
 
 4. **Utilities** (`src/utils/`)
+
    - `logging.py`: Configures rotating file and console logging
    - `state.py`: Handles atomic state persistence to JSON
 
@@ -421,15 +437,18 @@ Solana Blockchain
 ## Security Considerations
 
 1. **Private Key Protection**
+
    - Never commit `.env` to version control
    - Restrict file permissions: `chmod 600 .env`
    - Consider using environment variables or secrets management
 
 2. **RPC Endpoint**
+
    - Use a trusted RPC provider
    - Consider rate limiting and quotas
 
 3. **Position Sizing**
+
    - Start small and scale gradually
    - Set conservative `MAX_POSITION_SIZE_USDC`
 
@@ -447,6 +466,7 @@ Solana Blockchain
 ## Limitations & Future Enhancements
 
 Current limitations:
+
 - Single trading pair (SOL/USDC)
 - Spot trading only (no leverage/margin)
 - Simple market orders via Jupiter
@@ -454,6 +474,7 @@ Current limitations:
 - No web interface
 
 Potential enhancements:
+
 - Multi-pair support
 - Backtesting system
 - Web dashboard for monitoring
@@ -465,6 +486,7 @@ Potential enhancements:
 ## Contributing
 
 This is a personal trading bot. If you fork and enhance it, consider:
+
 - Writing tests for new strategies
 - Documenting configuration options
 - Following the existing code structure
@@ -481,6 +503,7 @@ This project is provided as-is for educational and personal use. Use at your own
 ## Support
 
 For issues, questions, or enhancements:
+
 1. Review the logs in `logs/trading_bot.log`
 2. Check this README for troubleshooting steps
 3. Verify your configuration in `.env`
