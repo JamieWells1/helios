@@ -26,11 +26,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY src/ ./src/
 COPY main.py .
 
-# Copy the test script
+# Copy the test scripts
 COPY run_tests.sh .
+COPY run_trading_tests.sh .
 
-# Ensure the test script is executable
-RUN chmod +x run_tests.sh
+# Ensure the test scripts are executable
+RUN chmod +x run_tests.sh run_trading_tests.sh
 
 # Create directories for logs and data
 RUN mkdir -p logs data

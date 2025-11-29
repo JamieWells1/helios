@@ -113,8 +113,8 @@ class TradingBot:
             'cryptocompare_base_url': os.getenv('CRYPTOCOMPARE_BASE_URL', 'https://min-api.cryptocompare.com/data/v2'),
             'cryptocompare_api_key': os.getenv('CRYPTOCOMPARE_API_KEY', None),
             'geckoterminal_base_url': os.getenv('GECKOTERMINAL_BASE_URL', 'https://api.geckoterminal.com/api/v2'),
-            'jupiter_quote_api': os.getenv('JUPITER_QUOTE_API', 'https://quote-api.jup.ag/v6/quote'),
-            'jupiter_swap_api': os.getenv('JUPITER_SWAP_API', 'https://quote-api.jup.ag/v6/swap'),
+            'jupiter_quote_api': os.getenv('JUPITER_QUOTE_API', 'https://public.jupiterapi.com/quote'),
+            'jupiter_swap_api': os.getenv('JUPITER_SWAP_API', 'https://public.jupiterapi.com/swap'),
         }
 
         # Validate required fields
