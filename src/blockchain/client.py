@@ -8,6 +8,7 @@ from typing import Optional
 from solana.rpc.api import Client
 from solana.rpc.core import RPCException
 from solders.pubkey import Pubkey
+from solders.signature import Signature
 
 from ..utils.logging import get_logger
 
@@ -208,3 +209,62 @@ class SolanaClient:
 
         logger.error(f"Failed to send transaction after {self.max_retries} attempts")
         return None
+
+    def confirm_transaction(
+        self, signature: str, max_wait_seconds: int = 30, poll_interval: float = 1.0
+    ) -> bool:
+        """
+        Wait for a transaction to be confirmed on the blockchain.
+
+        Args:
+            signature: Transaction signature to wait for
+            max_wait_seconds: Maximum time to wait for confirmation
+            poll_interval: Time between status checks in seconds
+
+        Returns:
+            True if transaction confirmed, False if timeout or error
+        """
+        if not self.client:
+            logger.error("Client not initialized")
+            return False
+
+        logger.info(f"Waiting for transaction confirmation: {signature[:16]}...")
+        start_time = time.time()
+
+        # Convert string signature to Signature object
+        sig_obj = Signature.from_string(signature)
+
+        while (time.time() - start_time) < max_wait_seconds:
+            try:
+                # Check transaction status
+                response = self.client.get_signature_statuses([sig_obj])
+
+                if response.value and len(response.value) > 0:
+                    status = response.value[0]
+
+                    if status is not None:
+                        # Check if transaction is confirmed
+                        if status.confirmation_status:
+                            confirmation_level = str(status.confirmation_status)
+                            logger.info(f"Transaction confirmation status: {confirmation_level}")
+
+                            # Accept 'confirmed' or 'finalized'
+                            # Check if the status contains these keywords
+                            if "Confirmed" in confirmation_level or "Finalized" in confirmation_level:
+                                logger.info(f"Transaction confirmed after {time.time() - start_time:.2f}s")
+                                return True
+
+                        # Check for errors
+                        if status.err:
+                            logger.error(f"Transaction failed with error: {status.err}")
+                            return False
+
+                # Wait before next check
+                time.sleep(poll_interval)
+
+            except Exception as e:
+                logger.warning(f"Error checking transaction status: {e}")
+                time.sleep(poll_interval)
+
+        logger.warning(f"Transaction confirmation timeout after {max_wait_seconds}s")
+        return False

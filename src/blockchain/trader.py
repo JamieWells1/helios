@@ -11,7 +11,8 @@ import base64
 
 from solders.keypair import Keypair
 from solders.transaction import VersionedTransaction, Transaction
-from solders.message import MessageV0
+from solders.message import MessageV0, to_bytes_versioned
+from solders.signature import Signature
 
 from .client import SolanaClient
 from ..utils.logging import get_logger
@@ -130,6 +131,8 @@ class JupiterTrader:
             Transaction signature, or None if swap fails
         """
         try:
+            # Get swap transaction from Jupiter immediately
+            # This minimizes the time between quote and execution
             swap_response = self._get_swap_transaction(quote)
             if not swap_response:
                 logger.error("Failed to get swap transaction from Jupiter")
@@ -140,6 +143,12 @@ class JupiterTrader:
                 logger.error("No swap transaction in response")
                 return None
 
+            # Check for simulation error (indicates quote may be stale)
+            simulation_error = swap_response.get("simulationError")
+            if simulation_error:
+                logger.warning(f"Jupiter simulation error: {simulation_error}")
+                logger.info("This may indicate the quote has expired or slippage exceeded")
+
             # Log the swap response keys to understand what Jupiter returns
             logger.info(f"Swap response keys: {list(swap_response.keys())}")
 
@@ -147,50 +156,48 @@ class JupiterTrader:
             transaction_bytes = base64.b64decode(swap_transaction)
             logger.info(f"Decoded transaction, {len(transaction_bytes)} bytes")
 
-            # Check if the transaction is already signed (Jupiter signs for routing)
+            # Decode and sign the transaction from Jupiter
             try:
-                temp_tx = VersionedTransaction.from_bytes(transaction_bytes)
-                num_sigs = len(temp_tx.signatures)
-                logger.info(f"Transaction has {num_sigs} existing signature(s)")
+                tx = VersionedTransaction.from_bytes(transaction_bytes)
+                logger.info(f"Transaction has {len(tx.signatures)} signature slot(s)")
 
-                # Check if first signature is not all zeros (meaning it's signed)
-                if num_sigs > 0:
-                    first_sig_bytes = bytes(temp_tx.signatures[0])
-                    zero_sig = bytes(64)
-                    is_signed = first_sig_bytes != zero_sig
-                    logger.info(f"First signature: {first_sig_bytes[:16].hex()}... (first 16 bytes)")
-                    logger.info(f"Is signed: {is_signed}")
+                # Check if first signature is placeholder (all zeros)
+                first_sig_bytes = bytes(tx.signatures[0])
+                zero_sig = bytes(64)
+                is_signed = first_sig_bytes != zero_sig
 
-                    if not is_signed:
-                        # Transaction has placeholder signature - we need to sign it
-                        logger.info("Signing transaction with our keypair...")
+                if is_signed:
+                    logger.info("Transaction already signed - sending as-is")
+                    signature = self.rpc_client.send_transaction(transaction_bytes)
+                    if signature:
+                        logger.info(f"Swap executed successfully. Signature: {signature}")
+                        logger.info(f"View on Solscan: https://solscan.io/tx/{signature}")
+                    return signature
 
-                        # Sign the message
-                        message_bytes = bytes(temp_tx.message)
-                        our_signature = self.keypair.sign_message(message_bytes)
-                        logger.info(f"Created signature: {bytes(our_signature)[:16].hex()}...")
+                # Transaction needs signing - do this immediately to minimize delay
+                logger.info("Signing transaction with keypair...")
 
-                        # Replace the zero signature with ours in the transaction bytes
-                        # Transaction format: [num_sigs(compact-u16)][signatures...][message]
-                        # For 1 signature: [0x01][64 bytes sig][message]
-                        signed_tx_bytes = bytearray(transaction_bytes)
-                        # Signature starts at byte 1 (after the 0x01 num_sigs byte)
-                        signed_tx_bytes[1:65] = bytes(our_signature)
-                        logger.info("Replaced placeholder signature with our signature")
+                # Get the message from the transaction
+                message = tx.message
 
-                        signature = self.rpc_client.send_transaction(bytes(signed_tx_bytes))
-                        if signature:
-                            logger.info(f"Swap executed successfully. Signature: {signature}")
-                            logger.info(f"View on Solscan: https://solscan.io/tx/{signature}")
-                        return signature
-                    else:
-                        # Already signed - send as-is
-                        logger.info("Transaction already signed - sending as-is")
-                        signature = self.rpc_client.send_transaction(transaction_bytes)
-                        if signature:
-                            logger.info(f"Swap executed successfully. Signature: {signature}")
-                            logger.info(f"View on Solscan: https://solscan.io/tx/{signature}")
-                        return signature
+                # Sign the versioned message using the correct method
+                # to_bytes_versioned() serializes the message in the correct format for signing
+                signature_obj = self.keypair.sign_message(to_bytes_versioned(message))
+
+                logger.info(f"Created signature: {bytes(signature_obj)[:16].hex()}...")
+
+                # Populate the transaction with the signature
+                # VersionedTransaction.populate() creates a properly signed transaction
+                signed_tx = VersionedTransaction.populate(message, [signature_obj])
+
+                logger.info(f"Populated transaction with signature")
+
+                # Send the signed transaction immediately
+                signature = self.rpc_client.send_transaction(bytes(signed_tx))
+                if signature:
+                    logger.info(f"Swap executed successfully. Signature: {signature}")
+                    logger.info(f"View on Solscan: https://solscan.io/tx/{signature}")
+                return signature
 
             except Exception as e:
                 logger.error(f"Error processing transaction: {e}")
@@ -254,15 +261,17 @@ class JupiterTrader:
         usdc_mint: str,
         sol_mint: str,
         max_slippage_percent: float = 1.0,
+        max_quote_retries: int = 2,
     ) -> Optional[str]:
         """
-        Buy SOL with USDC.
+        Buy SOL with USDC with automatic quote refresh on expiration.
 
         Args:
             usdc_amount: Amount of USDC to spend
             usdc_mint: USDC token mint address
             sol_mint: SOL token mint address
             max_slippage_percent: Maximum slippage percentage
+            max_quote_retries: Number of times to retry with fresh quote on expiration
 
         Returns:
             Transaction signature, or None if trade fails
@@ -272,18 +281,35 @@ class JupiterTrader:
         amount_in_smallest_unit = int(usdc_amount * 1e6)
         slippage_bps = int(max_slippage_percent * 100)
 
-        quote = self.get_quote(
-            input_mint=usdc_mint,
-            output_mint=sol_mint,
-            amount=amount_in_smallest_unit,
-            slippage_bps=slippage_bps,
-        )
+        # Retry loop for quote expiration
+        for attempt in range(max_quote_retries + 1):
+            if attempt > 0:
+                logger.info(f"Retrying with fresh quote (attempt {attempt + 1}/{max_quote_retries + 1})...")
+                time.sleep(0.5)  # Brief pause before retry
 
-        if not quote:
-            logger.error("Failed to get quote for BUY order")
-            return None
+            # Get fresh quote
+            quote = self.get_quote(
+                input_mint=usdc_mint,
+                output_mint=sol_mint,
+                amount=amount_in_smallest_unit,
+                slippage_bps=slippage_bps,
+            )
 
-        return self.execute_swap(quote, max_slippage_percent)
+            if not quote:
+                logger.error("Failed to get quote for BUY order")
+                continue
+
+            # Execute immediately to minimize time between quote and swap
+            result = self.execute_swap(quote, max_slippage_percent)
+
+            if result:
+                return result
+
+            # If execution failed, it might be due to quote expiration - retry with fresh quote
+            logger.warning("Swap execution failed, will retry with fresh quote if attempts remain")
+
+        logger.error(f"Failed to execute BUY after {max_quote_retries + 1} attempts")
+        return None
 
     def sell_sol_for_usdc(
         self,
@@ -291,15 +317,17 @@ class JupiterTrader:
         sol_mint: str,
         usdc_mint: str,
         max_slippage_percent: float = 1.0,
+        max_quote_retries: int = 2,
     ) -> Optional[str]:
         """
-        Sell SOL for USDC.
+        Sell SOL for USDC with automatic quote refresh on expiration.
 
         Args:
             sol_amount: Amount of SOL to sell
             sol_mint: SOL token mint address
             usdc_mint: USDC token mint address
             max_slippage_percent: Maximum slippage percentage
+            max_quote_retries: Number of times to retry with fresh quote on expiration
 
         Returns:
             Transaction signature, or None if trade fails
@@ -309,15 +337,32 @@ class JupiterTrader:
         amount_in_smallest_unit = int(sol_amount * 1e9)
         slippage_bps = int(max_slippage_percent * 100)
 
-        quote = self.get_quote(
-            input_mint=sol_mint,
-            output_mint=usdc_mint,
-            amount=amount_in_smallest_unit,
-            slippage_bps=slippage_bps,
-        )
+        # Retry loop for quote expiration
+        for attempt in range(max_quote_retries + 1):
+            if attempt > 0:
+                logger.info(f"Retrying with fresh quote (attempt {attempt + 1}/{max_quote_retries + 1})...")
+                time.sleep(0.5)  # Brief pause before retry
 
-        if not quote:
-            logger.error("Failed to get quote for SELL order")
-            return None
+            # Get fresh quote
+            quote = self.get_quote(
+                input_mint=sol_mint,
+                output_mint=usdc_mint,
+                amount=amount_in_smallest_unit,
+                slippage_bps=slippage_bps,
+            )
 
-        return self.execute_swap(quote, max_slippage_percent)
+            if not quote:
+                logger.error("Failed to get quote for SELL order")
+                continue
+
+            # Execute immediately to minimize time between quote and swap
+            result = self.execute_swap(quote, max_slippage_percent)
+
+            if result:
+                return result
+
+            # If execution failed, it might be due to quote expiration - retry with fresh quote
+            logger.warning("Swap execution failed, will retry with fresh quote if attempts remain")
+
+        logger.error(f"Failed to execute SELL after {max_quote_retries + 1} attempts")
+        return None

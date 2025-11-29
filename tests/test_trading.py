@@ -143,9 +143,13 @@ class TestTrading(unittest.TestCase):
         logger.info(f"✓ Transaction signature: {signature}")
         logger.info(f"✓ View on Solscan: https://solscan.io/tx/{signature}")
 
-        # Wait for transaction to confirm
-        logger.info("Waiting 5 seconds for transaction to confirm...")
-        time.sleep(5)
+        # Wait for transaction to confirm on blockchain
+        confirmed = self.rpc_client.confirm_transaction(signature, max_wait_seconds=30)
+        if not confirmed:
+            logger.warning("Transaction did not confirm within timeout, but may still succeed")
+
+        # Additional brief wait to ensure balance propagation
+        time.sleep(2)
 
         # Check final balances
         final_sol = self.wallet.get_sol_balance()
@@ -201,9 +205,13 @@ class TestTrading(unittest.TestCase):
         logger.info(f"✓ Transaction signature: {signature}")
         logger.info(f"✓ View on Solscan: https://solscan.io/tx/{signature}")
 
-        # Wait for transaction to confirm
-        logger.info("Waiting 5 seconds for transaction to confirm...")
-        time.sleep(5)
+        # Wait for transaction to confirm on blockchain
+        confirmed = self.rpc_client.confirm_transaction(signature, max_wait_seconds=30)
+        if not confirmed:
+            logger.warning("Transaction did not confirm within timeout, but may still succeed")
+
+        # Additional brief wait to ensure balance propagation
+        time.sleep(2)
 
         # Check final balances
         final_sol = self.wallet.get_sol_balance()
